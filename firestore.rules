@@ -1,0 +1,168 @@
+rules_version = '2';
+
+// Đã rà soát Phase 5 (20/10/2026) đối chiếu code client thật:
+// client KHÔNG ghi Firestore trực tiếp ở bất cứ đâu — mọi ghi nghiệp vụ đi qua
+// Cloud Functions (Admin SDK bypass rules). Client chỉ đọc: deals (feed +
+// deal của cửa hàng), orders (đơn của mình / của cửa hàng mình), users (hồ sơ
+// của mình), stores/{id}/dailyStats (chủ cửa hàng).
+// Ý định đầy đủ: xem docs/backend-contract.md §4.
+// Không có service-account key nào được commit.
+// NGOẠI LỆ Phase 9 (21/10/2026): collection `chats` do client ghi thẳng
+// (chat cần thời gian thực, đi qua API server sẽ mất tính realtime) —
+// rules khóa chỉ 2 bên tham gia của từng thread mới đọc/ghi được.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSeller() {
+      return isSignedIn() && request.auth.token.seller == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // True khi caller là seller và sở hữu cửa hàng storeId.
+    function isStoreOwner(storeId) {
+      return isSeller()
+        && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid
+             == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      // Hồ sơ (điểm xanh, đã tiết kiệm...) chỉ do Functions tạo/cập nhật
+      // (onUserCreate, createOrder, confirmPickup) — client không được tự ghi,
+      // tránh tự sửa điểm/số liệu của chính mình.
+      allow write: if false;
+
+      // Quán yêu thích: chỉ chủ tài khoản đọc; ghi qua server (toggleFavorite).
+      match /favorites/{favId} {
+        allow read: if isSignedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+      // Ưu đãi đổi điểm: chỉ chủ tài khoản đọc; ghi qua server (exchangeVoucher).
+      match /vouchers/{voucherId} {
+        allow read: if isSignedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // Thông báo: chỉ người nhận đọc; ghi/đánh dấu qua server.
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    // Quảng bá (BMC "phí ưu tiên hiển thị"): đọc công khai để trang
+    // chủ hiện băng chuyền Nổi bật; ghi chỉ qua server.
+    match /promotions/{promoId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    // Khiếu nại: người mua, quán của đơn đó, hoặc admin đọc; ghi qua server.
+    match /complaints/{complaintId} {
+      allow read: if isSignedIn() &&
+        (request.auth.uid == resource.data.buyerId ||
+         request.auth.uid == resource.data.storeId || isAdmin());
+      allow write: if false;
+    }
+    // Yêu cầu hỗ trợ (CSKH): chủ ticket hoặc admin đọc; ghi qua server.
+    match /supportTickets/{ticketId} {
+      allow read: if isSignedIn() &&
+        (request.auth.uid == resource.data.userId || isAdmin());
+      allow write: if false;
+    }
+    match /stores/{storeId} {
+      // Thông tin cửa hàng là thông tin kinh doanh công khai (tên, địa chỉ).
+      allow read: if true;
+      // Cửa hàng do grantSellerRole tạo; client không ghi trực tiếp.
+      allow write: if false;
+
+      match /dailyStats/{day} {
+        allow read: if isStoreOwner(storeId);
+        allow write: if false; // chỉ Cloud Functions được ghi
+      }
+      // Phí duy trì + đối soát hoa hồng (BMC): chỉ chủ quán + admin đọc.
+      match /feePayments/{payId} {
+        allow read: if isStoreOwner(storeId) || isAdmin();
+        allow write: if false;
+      }
+      match /settlements/{settleId} {
+        allow read: if isStoreOwner(storeId) || isAdmin();
+        allow write: if false;
+      }
+    }
+
+    match /deals/{dealId} {
+      allow read: if true;
+      allow write: if false; // tạo/sửa deal chỉ qua Cloud Functions
+    }
+
+    match /orders/{orderId} {
+      allow read: if isSignedIn()
+        && (resource.data.buyerId == request.auth.uid
+            || isStoreOwner(resource.data.storeId));
+      allow write: if false; // tạo/sửa đơn chỉ qua Cloud Functions
+    }
+
+    // Phase 6: đánh giá sau khi nhận hàng. Ai đăng nhập cũng đọc được
+    // (hiện ở trang chi tiết deal); ghi chỉ qua API submitReview.
+    match /reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Phase 9: chat buyer <-> seller (xem ghi chú ngoại lệ ở đầu file).
+    // storeId chính là uid của seller nên "phía quán" = storeId == uid.
+    match /chats/{chatId} {
+      function isParty(data) {
+        return isSignedIn()
+          && (data.buyerUid == request.auth.uid
+              || data.storeId == request.auth.uid);
+      }
+
+      // resource == null: cho phép get() kiểm tra 1 thread CHƯA tồn
+      // tại (ensureThread phía app phải đọc thử trước khi tạo) —
+      // thiếu điều kiện này thì bước kiểm tra bị chặn permission-
+      // denied và không bao giờ tạo được thread mới (lỗi gặp ở test
+      // Phần C đêm 21/10/2026, đã vá).
+      allow read: if resource == null || isParty(resource.data);
+      allow create: if isSignedIn()
+        && request.resource.data.buyerUid is string
+        && request.resource.data.storeId is string
+        && (request.resource.data.buyerUid == request.auth.uid
+            || (isSeller()
+                && request.resource.data.storeId == request.auth.uid));
+      // Chỉ 2 bên được cập nhật (lastMessage, bộ đếm chưa đọc...);
+      // không ai được sửa danh tính 2 bên của thread.
+      allow update: if isParty(resource.data)
+        && request.resource.data.buyerUid == resource.data.buyerUid
+        && request.resource.data.storeId == resource.data.storeId;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function threadData() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
+
+        allow read: if isSignedIn()
+          && (threadData().buyerUid == request.auth.uid
+              || threadData().storeId == request.auth.uid);
+        allow create: if isSignedIn()
+          && (threadData().buyerUid == request.auth.uid
+              || threadData().storeId == request.auth.uid)
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

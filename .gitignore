@@ -1,0 +1,20 @@
+# === LastBite — .gitignore gốc repo ===
+# Khóa ký + bí mật — KHÔNG BAO GIỜ commit (repo public)
+*.jks
+*.keystore
+key.properties
+**/key.properties
+
+# Node (server + functions)
+**/node_modules/
+server/dist/
+server/.vercel/
+
+# Dữ liệu + log của Firebase Emulator
+emulator-data/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Khác
+.DS_Store
