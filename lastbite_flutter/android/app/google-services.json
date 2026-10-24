@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "155804426368",
+    "project_id": "last-bite-xyz",
+    "storage_bucket": "last-bite-xyz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:155804426368:android:b615a4334e8973759c8665",
+        "android_client_info": {
+          "package_name": "com.example.lastbite_flutter"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "155804426368-7smuj1hn7fjm3b9d68d59ipuph0fu45m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTI-LaDPYxyyyra4VE1LvYDnUDeLrgNVU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "155804426368-7smuj1hn7fjm3b9d68d59ipuph0fu45m.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:155804426368:android:62351db07c06c3d19c8665",
+        "android_client_info": {
+          "package_name": "com.lastbite.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "155804426368-7smuj1hn7fjm3b9d68d59ipuph0fu45m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTI-LaDPYxyyyra4VE1LvYDnUDeLrgNVU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "155804426368-7smuj1hn7fjm3b9d68d59ipuph0fu45m.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

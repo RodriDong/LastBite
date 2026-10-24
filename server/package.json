@@ -1,0 +1,21 @@
+{
+  "name": "lastbite-api",
+  "private": true,
+  "version": "1.0.0",
+  "description": "LastBite API server (chạy trên Vercel hoặc local) — logic nghiệp vụ port từ Cloud Functions, dữ liệu vẫn ở Firebase (Spark).",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/local.js"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.2",
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.0"
+  }
+}

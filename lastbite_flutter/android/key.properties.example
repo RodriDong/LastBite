@@ -1,0 +1,6 @@
+# Sao chép file này thành key.properties (cùng thư mục android/) rồi điền thật.
+# TUYỆT ĐỐI không commit key.properties và file .jks lên git (repo PUBLIC).
+storePassword=<mật khẩu kho khóa bạn đã đặt>
+keyPassword=<mật khẩu khóa bạn đã đặt>
+keyAlias=lastbite
+storeFile=C:/src/LastBite/lastbite-release.jks
