@@ -202,32 +202,31 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
           _buildProfileTab(),
         ],
       ),
-      // Gói Túi + Phí: bọc SafeArea để thanh điều hướng hệ thống của
-      // Android (đặc biệt Android 15 edge-to-edge) không che mất tab.
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Container(
-          decoration: const BoxDecoration(
-            color: AppColors.card,
-            border: Border(top: BorderSide(color: AppColors.line)),
-          ),
-        child: BottomNavigationBar(
-          currentIndex: currentTab,
-          onTap: (i) => setState(() => currentTab = i),
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: AppColors.card,
-          selectedItemColor: AppColors.green,
-          unselectedItemColor: AppColors.mute,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
-          unselectedLabelStyle: const TextStyle(fontSize: 11),
-          items: const [
-            BottomNavigationBarItem(icon: Text('🏠', style: TextStyle(fontSize: 18)), label: 'Trang chủ'),
-            BottomNavigationBarItem(icon: Text('📍', style: TextStyle(fontSize: 18)), label: 'Khám phá'),
-            BottomNavigationBarItem(icon: Text('🧾', style: TextStyle(fontSize: 18)), label: 'Đơn hàng'),
-            BottomNavigationBarItem(icon: Text('🎁', style: TextStyle(fontSize: 18)), label: 'Ưu đãi'),
-            BottomNavigationBarItem(icon: Text('👤', style: TextStyle(fontSize: 18)), label: 'Tôi'),
-          ],
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.card,
+          border: Border(top: BorderSide(color: AppColors.line)),
         ),
+        child: SafeArea(
+          top: false, // Giữ màu nền tràn mép dưới và đẩy các icon/chữ lên trên phím ảo
+          child: BottomNavigationBar(
+            currentIndex: currentTab,
+            onTap: (i) => setState(() => currentTab = i),
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: AppColors.card,
+            elevation: 0,
+            selectedItemColor: AppColors.green,
+            unselectedItemColor: AppColors.mute,
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+            unselectedLabelStyle: const TextStyle(fontSize: 11),
+            items: const [
+              BottomNavigationBarItem(icon: Text('🏠', style: TextStyle(fontSize: 18)), label: 'Trang chủ'),
+              BottomNavigationBarItem(icon: Text('📍', style: TextStyle(fontSize: 18)), label: 'Khám phá'),
+              BottomNavigationBarItem(icon: Text('🧾', style: TextStyle(fontSize: 18)), label: 'Đơn hàng'),
+              BottomNavigationBarItem(icon: Text('🎁', style: TextStyle(fontSize: 18)), label: 'Ưu đãi'),
+              BottomNavigationBarItem(icon: Text('👤', style: TextStyle(fontSize: 18)), label: 'Tôi'),
+            ],
+          ),
         ),
       ),
     );
@@ -1497,79 +1496,82 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
       isScrollControlled: true,
       backgroundColor: AppColors.card,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(color: AppColors.greenLight, borderRadius: BorderRadius.circular(99)),
-              child: Text(
-                'Đặt thành công · #${order.pickupCode}',
-                style: const TextStyle(color: AppColors.greenDark, fontWeight: FontWeight.w700, fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: QrImageView(data: order.pickupCode, size: 170),
-            ),
-            const SizedBox(height: 12),
-            const Text('Đưa mã này cho quán', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 19)),
-            const SizedBox(height: 4),
-            Text(
-              '${order.storeName} · nhận ${order.pickupSlot}',
-              style: const TextStyle(color: AppColors.mute, fontSize: 12.5),
-            ),
-            const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [AppColors.hot, Color(0xFFFF8A3C)]),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                'Mã xác nhận: ${order.pickupCode}  |  Còn lại ${AppData.formatCountdown(order.remainingSeconds)}',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
-              ),
-            ),
-            if (order.isPending) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => _cancelOrder(order, sheetContext),
-                child: const Text('Hủy đơn hàng',
-                    style: TextStyle(color: AppColors.hot, fontWeight: FontWeight.w700)),
-              ),
-            ],
-            if (order.isCompleted) ...[
-              const SizedBox(height: 8),
-              if (order.reviewed)
-                Text(
-                  'Bạn đã đánh giá ★${order.reviewRating} cho đơn này',
-                  style: const TextStyle(
-                      color: AppColors.greenDark,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13),
-                )
-              else
-                FilledButton(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _showReviewDialog(order);
-                  },
-                  child: const Text('Đánh giá đơn này'),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(color: AppColors.greenLight, borderRadius: BorderRadius.circular(99)),
+                child: Text(
+                  'Đặt thành công · #${order.pickupCode}',
+                  style: const TextStyle(color: AppColors.greenDark, fontWeight: FontWeight.w700, fontSize: 12),
                 ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.line),
+                ),
+                child: QrImageView(data: order.pickupCode, size: 170),
+              ),
+              const SizedBox(height: 12),
+              const Text('Đưa mã này cho quán', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 19)),
+              const SizedBox(height: 4),
+              Text(
+                '${order.storeName} · nhận ${order.pickupSlot}',
+                style: const TextStyle(color: AppColors.mute, fontSize: 12.5),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [AppColors.hot, Color(0xFFFF8A3C)]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  'Mã xác nhận: ${order.pickupCode}  |  Còn lại ${AppData.formatCountdown(order.remainingSeconds)}',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+              if (order.isPending) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => _cancelOrder(order, sheetContext),
+                  child: const Text('Hủy đơn hàng',
+                      style: TextStyle(color: AppColors.hot, fontWeight: FontWeight.w700)),
+                ),
+              ],
+              if (order.isCompleted) ...[
+                const SizedBox(height: 8),
+                if (order.reviewed)
+                  Text(
+                    'Bạn đã đánh giá ★${order.reviewRating} cho đơn này',
+                    style: const TextStyle(
+                        color: AppColors.greenDark,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13),
+                  )
+                else
+                  FilledButton(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      _showReviewDialog(order);
+                    },
+                    child: const Text('Đánh giá đơn này'),
+                  ),
+              ],
+              const SizedBox(height: 8),
             ],
-            const SizedBox(height: 8),
-          ],
+          ),
         ),
       ),
     );
