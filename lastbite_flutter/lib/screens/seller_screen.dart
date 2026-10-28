@@ -45,6 +45,10 @@ class _SellerScreenState extends State<SellerScreen> {
   String _dealCategory = 'Bánh ngọt';
   // Phase 8: ảnh deal tùy chọn (bytes đã nén, null = dùng emoji).
   Uint8List? _dealImageBytes;
+  // Gói Túi + Phí: loại đăng (túi = sản phẩm chính) + nhóm món trong túi.
+  bool _isBag = false;
+  final Set<String> _bagCategories = {};
+  final allergyCtrl = TextEditingController();
 
   // Phase 3: deal thật của cửa hàng từ Firestore.
   List<Deal> _deals = [];
@@ -72,6 +76,8 @@ class _SellerScreenState extends State<SellerScreen> {
   // Phase 6: hồ sơ cửa hàng thật (stores/{uid}) cho header + tab Cửa hàng.
   String _storeName = '';
   DateTime? _storeFeeExpiresAt;
+  // Gói Túi + Phí: ngày tạo quán -> giai đoạn phí + % hoa hồng.
+  DateTime? _storeCreatedAt;
   int _ledgerRecorded = 0;
   int _ledgerPaid = 0;
   bool _isGift = false;
@@ -133,6 +139,7 @@ class _SellerScreenState extends State<SellerScreen> {
             _certUrl = p.certUrl;
             _certReviewNote = p.certReviewNote;
             _storeFeeExpiresAt = p.feeExpiresAt;
+            _storeCreatedAt = p.createdAt;
           });
         });
       }
@@ -172,11 +179,15 @@ class _SellerScreenState extends State<SellerScreen> {
           _buildStoreProfileTab(),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.card,
-          border: Border(top: BorderSide(color: AppColors.line)),
-        ),
+      // Gói Túi + Phí: bọc SafeArea để thanh điều hướng hệ thống của
+      // Android (đặc biệt Android 15 edge-to-edge) không che mất tab.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppColors.card,
+            border: Border(top: BorderSide(color: AppColors.line)),
+          ),
         child: BottomNavigationBar(
           currentIndex: currentTab,
           onTap: (i) => setState(() => currentTab = i),
@@ -193,6 +204,7 @@ class _SellerScreenState extends State<SellerScreen> {
             BottomNavigationBarItem(icon: Text('💰', style: TextStyle(fontSize: 18)), label: 'Doanh thu'),
             BottomNavigationBarItem(icon: Text('🏪', style: TextStyle(fontSize: 18)), label: 'Cửa hàng'),
           ],
+        ),
         ),
       ),
     );
@@ -422,18 +434,30 @@ class _SellerScreenState extends State<SellerScreen> {
     }
   }
 
-  /// Đăng deal mới qua Cloud Function `createDeal`.
+  /// Đăng deal mới qua API `createDeal`.
   /// Ô "Kết thúc bán lúc" nhập dạng HH:mm (giờ hôm nay theo giờ máy;
   /// nếu đã qua thì hiểu là ngày mai).
+  /// Gói Túi + Phí: túi có giá cố định 50% giá trị thật, chọn nhiều
+  /// nhóm món có thể có; lẻ giữ nguyên thang giảm theo giờ.
   Future<void> _submitDeal() async {
     final messenger = ScaffoldMessenger.of(context);
-    final title = titleCtrl.text.trim();
+    var title = titleCtrl.text.trim();
     if (title.isEmpty) {
-      messenger.showSnackBar(const SnackBar(content: Text('Vui lòng nhập tên món.')));
-      return;
+      if (_isBag) {
+        title = 'Túi bất ngờ';
+      } else {
+        messenger.showSnackBar(const SnackBar(content: Text('Vui lòng nhập tên món.')));
+        return;
+      }
     }
     final orig = _isGift ? 0 : (int.tryParse(origPriceCtrl.text) ?? 0);
     final qty = int.tryParse(qtyCtrl.text) ?? 0;
+    if (_isBag && _bagCategories.isEmpty) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Chọn ít nhất 1 nhóm món có thể có trong túi.')));
+      return;
+    }
+    final bagCats = _bagCategories.toList();
 
     DateTime end;
     try {
@@ -456,19 +480,30 @@ class _SellerScreenState extends State<SellerScreen> {
     }
 
     try {
-      final minPrice = _isGift ? 0 : ((orig * 0.3) / 1000).round() * 1000;
+      final minPrice = _isGift
+          ? 0
+          : _isBag
+              ? ((orig * 0.5) / 1000).round() * 1000
+              : ((orig * 0.3) / 1000).round() * 1000;
       await DealService.createDeal(
         title: title,
-        description: 'Phần ăn giải cứu cuối ngày, chất lượng đảm bảo.',
+        description: _isBag
+            ? 'Túi bất ngờ cuối ngày — quán đóng gì ngon thì bạn nhận nấy.'
+            : 'Phần ăn giải cứu cuối ngày, chất lượng đảm bảo.',
         icon: selectedEmoji,
-        category: _dealCategory,
+        category: _isBag ? bagCats.first : _dealCategory,
         originalPrice: orig,
         minPrice: minPrice,
+        maxDiscountPercent: _isBag ? 50 : 60,
         totalQty: qty,
         saleEndAt: end,
         pickupWindow: '20:00 – ${expTimeCtrl.text}',
         imageBytes: _dealImageBytes,
         isGift: _isGift,
+        dealType: _isBag ? 'bag' : 'retail',
+        originalValue: _isBag ? orig : null,
+        possibleCategories: bagCats,
+        allergyNote: _isBag ? allergyCtrl.text.trim() : '',
       );
       if (!mounted) return;
       setState(() {
@@ -498,6 +533,8 @@ class _SellerScreenState extends State<SellerScreen> {
     final p20 = floorPrice(((orig * 0.8) / 1000).round() * 1000);
     final p40 = floorPrice(((orig * 0.6) / 1000).round() * 1000);
     final p60 = floorPrice(((orig * 0.4) / 1000).round() * 1000);
+    // Gói Túi + Phí: giá túi cố định 50% giá trị thật (tặng = 0đ).
+    final bagPreview = _isGift ? 0 : ((orig * 0.5) / 1000).round() * 1000;
 
     return Column(
       children: [
@@ -529,10 +566,66 @@ class _SellerScreenState extends State<SellerScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              // Gói Túi + Phí: chọn loại đăng — túi là sản phẩm chính.
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _isBag = true;
+                        if (titleCtrl.text == 'Combo bánh ngọt') {
+                          titleCtrl.text = 'Túi bất ngờ';
+                        }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _isBag ? AppColors.green : AppColors.card,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: _isBag ? AppColors.green : AppColors.line),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text('🎒 Túi bất ngờ',
+                            style: TextStyle(
+                                color: _isBag ? Colors.white : AppColors.ink,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _isBag = false;
+                        if (titleCtrl.text == 'Túi bất ngờ') {
+                          titleCtrl.text = 'Combo bánh ngọt';
+                        }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: !_isBag ? AppColors.green : AppColors.card,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: !_isBag ? AppColors.green : AppColors.line),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text('🍱 Bán lẻ từng món',
+                            style: TextStyle(
+                                color: !_isBag ? Colors.white : AppColors.ink,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               // Phase 9: chọn danh mục (danh sách chốt cứng, khớp bộ lọc
               // phía buyer + validator phía server).
-              DropdownButtonFormField<String>(
-                value: _dealCategory,
+              if (!_isBag)
+                DropdownButtonFormField<String>(
+                  value: _dealCategory,
                 decoration: const InputDecoration(
                   labelText: 'Danh mục',
                   border: OutlineInputBorder(),
@@ -545,6 +638,44 @@ class _SellerScreenState extends State<SellerScreen> {
                 onChanged: (v) => setState(() => _dealCategory = v ?? 'Khác'),
               ),
               const SizedBox(height: 12),
+              // Gói Túi + Phí: túi chọn nhiều nhóm món có thể có.
+              if (_isBag) ...[
+                const Text(
+                  'Nhóm món có thể có trong túi (chọn ít nhất 1)',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: DealCategories.names.map((n) {
+                    final selected = _bagCategories.contains(n);
+                    return GestureDetector(
+                      onTap: () => setState(() {
+                        if (selected) {
+                          _bagCategories.remove(n);
+                        } else {
+                          _bagCategories.add(n);
+                        }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: selected ? AppColors.green : AppColors.card,
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: selected ? AppColors.green : AppColors.line),
+                        ),
+                        child: Text(n,
+                            style: TextStyle(
+                                color: selected ? Colors.white : AppColors.ink,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13)),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+              ],
               // Phase 8: ảnh món tùy chọn (không chọn thì app hiện emoji).
               GestureDetector(
                 onTap: () async {
@@ -592,8 +723,14 @@ class _SellerScreenState extends State<SellerScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              _formFieldRow('Tên món', titleCtrl, isNumber: false),
-              _formFieldRow('Giá gốc (VNĐ)', origPriceCtrl, isNumber: true),
+              _formFieldRow(
+                  _isBag ? 'Tên túi (để trống = Túi bất ngờ)' : 'Tên món',
+                  titleCtrl,
+                  isNumber: false),
+              _formFieldRow(
+                  _isBag ? 'Giá trị thật của túi (VNĐ)' : 'Giá gốc (VNĐ)',
+                  origPriceCtrl,
+                  isNumber: true),
               GestureDetector(
                 onTap: () => setState(() => _isGift = !_isGift),
                 child: Container(
@@ -618,11 +755,41 @@ class _SellerScreenState extends State<SellerScreen> {
                   ),
                 ),
               ),
-              _formFieldRow('Số lượng phần', qtyCtrl, isNumber: true),
+              if (_isBag)
+                _formFieldRow('Ghi chú dị ứng (tùy chọn)', allergyCtrl,
+                    isNumber: false),
+              _formFieldRow(
+                  _isBag ? 'Số lượng túi' : 'Số lượng phần',
+                  qtyCtrl,
+                  isNumber: true),
               _formFieldRow('Kết thúc bán lúc', expTimeCtrl, isNumber: false),
               const SizedBox(height: 14),
-              const Text(
-                'Khách sẽ thấy giá giảm tự động như sau',
+              if (_isBag)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.greenLight,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.green),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Giá túi cố định (50% giá trị thật)',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                      Text(
+                        _isGift ? 'Miễn phí 🎁' : AppData.formatVnd(bagPreview),
+                        style: const TextStyle(
+                            color: AppColors.price,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15),
+                      ),
+                    ],
+                  ),
+                ),
+              if (!_isBag) ...[
+                const Text(
+                  'Khách sẽ thấy giá giảm tự động như sau',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.greenDark),
               ),
               const SizedBox(height: 6),
@@ -655,7 +822,8 @@ class _SellerScreenState extends State<SellerScreen> {
                     _previewRow('Dưới 1 giờ', '60%', AppData.formatVnd(p60), true),
                   ],
                 ),
-              ),
+                ),
+              ],
               const SizedBox(height: 18),
               SizedBox(
                 height: 50,
@@ -1048,8 +1216,9 @@ class _SellerScreenState extends State<SellerScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Hoa hồng sàn (10%)',
-                            style: TextStyle(color: AppColors.mute)),
+                        Text(
+                            'Hoa hồng sàn (${FeeStage.commissionPercentForStage(FeeStage.stageOf(_storeCreatedAt, DateTime.now()))}%)',
+                            style: const TextStyle(color: AppColors.mute)),
                         Text('-${AppData.formatVnd(totalCommission)}',
                             style: const TextStyle(
                                 color: AppColors.hot,
@@ -1260,34 +1429,43 @@ class _SellerScreenState extends State<SellerScreen> {
     final expText = exp == null
         ? 'chưa có hạn'
         : '${exp.day}/${exp.month}/${exp.year}';
+    // Gói Túi + Phí: dialog theo giai đoạn + công khai toàn bộ biểu phí
+    // để quán biết trước lộ trình, không bị tăng giá bất ngờ.
+    final stage = FeeStage.stageOf(_storeCreatedAt, DateTime.now());
+    final commission = FeeStage.commissionPercentForStage(stage);
+    final isFree = stage == 1;
+    final amount = FeeStage.amountForStage(stage);
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Gia hạn gian hàng'),
         content: Text(
-          'Hạn duy trì hiện tại: $expText\n\n'
-          'Gia hạn 1 tháng — 99.000đ (giả lập, không cần admin duyệt). '
-          'Hết hạn thì không đăng được suất mới.',
+          isFree
+              ? 'Bạn đang ở Giai đoạn 1 — Miễn phí đến $expText, hoa hồng hiện tại: 5%. Chưa cần gia hạn.\n\n${FeeStage.scheduleText}'
+              : 'Hạn duy trì hiện tại: $expText\n'
+                  'Bạn đang ở Giai đoạn $stage — gia hạn 1 tháng: ${AppData.formatVnd(amount)} (giả lập, không cần admin duyệt). Hoa hồng hiện tại: $commission%. Hết hạn thì không đăng được suất mới.\n\n${FeeStage.scheduleText}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Để sau'),
+            child: Text(isFree ? 'Đóng' : 'Để sau'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Tôi đã thanh toán'),
-          ),
+          if (!isFree)
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Tôi đã thanh toán'),
+            ),
         ],
       ),
     );
     if (ok != true) return;
     try {
-      await SettlementService.renewShopFee();
+      final res = await SettlementService.renewShopFee();
       if (!mounted) return;
+      final paid = (res['amount'] as num?)?.round() ?? amount;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Đã gia hạn gian hàng 1 tháng!'),
+        SnackBar(
+            content: Text('Đã gia hạn gian hàng 1 tháng (${AppData.formatVnd(paid)})!'),
             backgroundColor: AppColors.green),
       );
     } catch (e) {

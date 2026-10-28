@@ -6,6 +6,7 @@
  */
 
 import { ApiError } from "./errors";
+import { roundToThousand } from "./pricing";
 
 export interface ValidatedDealInput {
   storeId: string;
@@ -13,14 +14,21 @@ export interface ValidatedDealInput {
   description: string;
   icon: string;
   category: string;
-  originalPrice: number; // int, VNĐ
-  minPrice: number; // int, VNĐ — giá sàn
-  maxDiscountPercent: number; // int, 1..90
-  totalQty: number; // int, >= 1
+  originalPrice: number; // int, VNĐ — với túi = giá trị thật khai báo
+  minPrice: number; // int, VNĐ — giá sàn (với túi = bagPrice)
+  maxDiscountPercent: number; // int, 1..90 (với túi = 50)
+  totalQty: number; // int, >= 1 — với túi = số túi
   saleEndAtMs: number; // epoch ms (UTC)
   pickupWindow: string;
   pickupSlots: string[];
   isGift: boolean;
+  // Gói Túi + Phí (10/2026): 'bag' = túi bất ngờ (giá cố định 50%),
+  // 'retail' = bán lẻ từng món (thang giảm theo giờ như cũ).
+  dealType: "bag" | "retail";
+  originalValue: number; // int, VNĐ — giá trị thật của túi (retail: = originalPrice)
+  bagPrice: number; // int, VNĐ — giá bán túi (retail: 0)
+  possibleCategories: string[]; // nhóm món có thể có trong túi
+  allergyNote: string; // ghi chú dị ứng (túi), tối đa 200 ký tự
 }
 
 export const DEFAULT_ICON = "📦";
@@ -87,7 +95,10 @@ export function validateCreateDealInput(data: unknown): ValidatedDealInput {
   }
 
   const isGift = d.isGift === true;
-  const originalPrice = d.originalPrice;
+  // Túi mới gửi originalValue; fallback để client chỉ gửi 1 trong 2
+  // vẫn qua được bước validate giá gốc bên dưới.
+  const originalPrice =
+    d.originalPrice !== undefined ? d.originalPrice : d.originalValue;
   if (isGift) {
     if (!isInt(originalPrice) || originalPrice !== 0) {
       throw invalid("Suất tặng phải có giá gốc = 0.");
@@ -114,6 +125,53 @@ export function validateCreateDealInput(data: unknown): ValidatedDealInput {
   ) {
     throw invalid("Mức giảm giá tối đa phải từ 1 đến 90%.");
   }
+
+  // Gói Túi + Phí (10/2026): loại deal + giá túi.
+  // Client mới gửi originalValue; client cũ (retail) chỉ gửi
+  // originalPrice nên originalValue fallback về originalPrice.
+  const dealType = d.dealType === "bag" ? "bag" : "retail";
+  const rawValue = d.originalValue !== undefined ? d.originalValue : originalPrice;
+  if (dealType === "bag") {
+    if (isGift) {
+      if (!isInt(rawValue) || rawValue !== 0) {
+        throw invalid("Túi tặng phải có giá trị thật = 0.");
+      }
+    } else if (!isInt(rawValue) || rawValue <= 0) {
+      throw invalid("Giá trị thật của túi phải là số nguyên dương (VNĐ).");
+    }
+  }
+  const originalValue = dealType === "bag" ? (rawValue as number) : originalPrice;
+  const bagPrice =
+    dealType === "bag"
+      ? isGift
+        ? 0
+        : roundToThousand(originalValue * 0.5)
+      : 0;
+
+  let possibleCategories: string[] = [];
+  if (dealType === "bag") {
+    if (
+      !Array.isArray(d.possibleCategories) ||
+      d.possibleCategories.length === 0 ||
+      !d.possibleCategories.every((c) => typeof c === "string")
+    ) {
+      throw invalid("Túi cần chọn ít nhất 1 nhóm món có thể có.");
+    }
+    const seen = new Set<string>();
+    for (const c of d.possibleCategories as string[]) {
+      const t = c.trim();
+      if (!DEAL_CATEGORIES.includes(t)) {
+        throw invalid(`Nhóm món trong túi không hợp lệ: ${t}.`);
+      }
+      seen.add(t);
+    }
+    possibleCategories = [...seen];
+  }
+  const allergyNoteRaw = asString(d.allergyNote)?.trim() ?? "";
+  if (allergyNoteRaw.length > 200) {
+    throw invalid("Ghi chú dị ứng tối đa 200 ký tự.");
+  }
+  const allergyNote = dealType === "bag" ? allergyNoteRaw : "";
 
   const totalQty = d.totalQty;
   if (!isInt(totalQty) || totalQty < 1) {
@@ -149,15 +207,22 @@ export function validateCreateDealInput(data: unknown): ValidatedDealInput {
     title,
     description,
     icon,
-    category,
-    originalPrice,
-    minPrice,
-    maxDiscountPercent,
+    // Túi: giá gốc trên doc = giá trị thật (để originalTotal và
+    // savedMoney tính đúng); giá bán = bagPrice, giảm cố định 50%.
+    category: dealType === "bag" ? possibleCategories[0] : category,
+    originalPrice: dealType === "bag" ? originalValue : originalPrice,
+    minPrice: dealType === "bag" ? bagPrice : minPrice,
+    maxDiscountPercent: dealType === "bag" ? 50 : maxDiscountPercent,
     totalQty,
     saleEndAtMs,
     pickupWindow,
     pickupSlots,
     isGift,
+    dealType,
+    originalValue,
+    bagPrice,
+    possibleCategories,
+    allergyNote,
   };
 }
 

@@ -31,6 +31,10 @@ class StoreProfile {
   final DateTime? feeExpiresAt;
   final String feeStatus;
 
+  /// Ngày tạo quán — dùng tính giai đoạn phí (Gói Túi + Phí):
+  /// < 60 ngày = GĐ1, < 180 ngày = GĐ2, còn lại = GĐ3.
+  final DateTime? createdAt;
+
   const StoreProfile({
     required this.id,
     required this.name,
@@ -45,6 +49,7 @@ class StoreProfile {
     required this.certReviewNote,
     required this.feeExpiresAt,
     required this.feeStatus,
+    required this.createdAt,
   });
 
   static StoreProfile fromFirestore(
@@ -67,6 +72,9 @@ class StoreProfile {
           ? (d['feeExpiresAt'] as Timestamp).toDate()
           : null,
       feeStatus: (d['feeStatus'] ?? '').toString(),
+      createdAt: d['createdAt'] is Timestamp
+          ? (d['createdAt'] as Timestamp).toDate()
+          : null,
     );
   }
 }

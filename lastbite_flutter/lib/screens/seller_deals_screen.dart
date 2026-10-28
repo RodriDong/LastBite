@@ -74,6 +74,9 @@ class _SellerDealsScreenState extends State<SellerDealsScreen> {
     String category = DealCategories.all.map((c) => c[1]).contains(d.category)
         ? d.category
         : 'Khác';
+    // Gói Túi + Phí: túi sửa nhóm món có thể có + ghi chú dị ứng.
+    final Set<String> bagCats = d.possibleCategories.toSet();
+    final allergyCtrl = TextEditingController(text: d.allergyNote);
     Uint8List? imageBytes;
     final ok = await showDialog<bool>(
       context: context,
@@ -101,8 +104,9 @@ class _SellerDealsScreenState extends State<SellerDealsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: category,
+                if (!d.isBag)
+                  DropdownButtonFormField<String>(
+                    value: category,
                   decoration: const InputDecoration(
                     labelText: 'Danh mục',
                     border: OutlineInputBorder(),
@@ -117,6 +121,57 @@ class _SellerDealsScreenState extends State<SellerDealsScreen> {
                       setDialogState(() => category = v ?? 'Khác'),
                 ),
                 const SizedBox(height: 12),
+                if (d.isBag) ...[
+                  const Text('Nhóm món có thể có trong túi',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: DealCategories.names.map((n) {
+                      final selected = bagCats.contains(n);
+                      return GestureDetector(
+                        onTap: () => setDialogState(() {
+                          if (selected) {
+                            bagCats.remove(n);
+                          } else {
+                            bagCats.add(n);
+                          }
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? AppColors.green
+                                : AppColors.card,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(
+                                color: selected
+                                    ? AppColors.green
+                                    : AppColors.line),
+                          ),
+                          child: Text(n,
+                              style: TextStyle(
+                                  color: selected
+                                      ? Colors.white
+                                      : AppColors.ink,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13)),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: allergyCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Ghi chú dị ứng',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 OutlinedButton(
                   onPressed: () async {
                     try {
@@ -160,6 +215,8 @@ class _SellerDealsScreenState extends State<SellerDealsScreen> {
         description: descCtrl.text.trim(),
         category: category,
         imageBytes: imageBytes,
+        possibleCategories: d.isBag ? bagCats.toList() : null,
+        allergyNote: d.isBag ? allergyCtrl.text.trim() : null,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -233,7 +290,7 @@ class _SellerDealsScreenState extends State<SellerDealsScreen> {
                               ),
                             ),
                             Text(
-                              '${_statusLabel(d.status)} · Còn ${d.remainingQty}/${d.totalQty} suất · ${d.category}',
+                              '${d.isBag ? '🎒 ' : ''}${_statusLabel(d.status)} · Còn ${d.remainingQty}/${d.totalQty} ${d.isBag ? 'túi' : 'suất'} · ${d.category}',
                               style: const TextStyle(
                                 color: AppColors.mute,
                                 fontSize: 12,

@@ -66,6 +66,11 @@ class DealService {
     List<String> pickupSlots = const [],
     Uint8List? imageBytes,
     bool isGift = false,
+    // Gói Túi + Phí: 'bag' = túi bất ngờ (giá cố định 50% giá trị thật).
+    String dealType = 'retail',
+    int? originalValue,
+    List<String> possibleCategories = const [],
+    String allergyNote = '',
   }) async {
     final storeId = myStoreId;
     if (storeId == null || storeId.isEmpty) {
@@ -85,6 +90,10 @@ class DealService {
       'pickupWindow': pickupWindow,
       'pickupSlots': pickupSlots,
       'isGift': isGift,
+      'dealType': dealType,
+      if (dealType == 'bag') 'originalValue': originalValue ?? originalPrice,
+      if (dealType == 'bag') 'possibleCategories': possibleCategories,
+      if (dealType == 'bag') 'allergyNote': allergyNote,
       // Phase 8: ảnh deal (server lưu lên Vercel Blob).
       if (imageBytes != null) 'imageBase64': base64Encode(imageBytes),
     });
@@ -127,6 +136,9 @@ class DealService {
     String? description,
     String? category,
     Uint8List? imageBytes,
+    // Gói Túi + Phí: chỉ túi mới dùng 2 trường này (deal lẻ bỏ qua).
+    List<String>? possibleCategories,
+    String? allergyNote,
   }) async {
     await ApiService.post('/api/updateDeal', {
       'dealId': dealId,
@@ -134,6 +146,8 @@ class DealService {
       if (description != null) 'description': description,
       if (category != null) 'category': category,
       if (imageBytes != null) 'imageBase64': base64Encode(imageBytes),
+      if (possibleCategories != null) 'possibleCategories': possibleCategories,
+      if (allergyNote != null) 'allergyNote': allergyNote,
     });
   }
 }

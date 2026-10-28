@@ -202,11 +202,15 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
           _buildProfileTab(),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.card,
-          border: Border(top: BorderSide(color: AppColors.line)),
-        ),
+      // Gói Túi + Phí: bọc SafeArea để thanh điều hướng hệ thống của
+      // Android (đặc biệt Android 15 edge-to-edge) không che mất tab.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppColors.card,
+            border: Border(top: BorderSide(color: AppColors.line)),
+          ),
         child: BottomNavigationBar(
           currentIndex: currentTab,
           onTap: (i) => setState(() => currentTab = i),
@@ -224,6 +228,7 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
             BottomNavigationBarItem(icon: Text('👤', style: TextStyle(fontSize: 18)), label: 'Tôi'),
           ],
         ),
+        ),
       ),
     );
   }
@@ -235,7 +240,14 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
     final activeBoxes = _boxes.where((b) {
       if (!b.isActive) return false;
       if (b.remainingSeconds <= 0) return false; // hết giờ: chờ server flip status
-      if (selectedCategory != 'Tất cả' && b.category != selectedCategory) return false;
+      // Gói Túi + Phí: túi khớp danh mục khi danh mục nằm trong nhóm
+      // món có thể có; lẻ khớp danh mục của chính nó.
+      if (selectedCategory != 'Tất cả') {
+        final matches = b.isBag
+            ? b.possibleCategories.contains(selectedCategory)
+            : b.category == selectedCategory;
+        if (!matches) return false;
+      }
       if (searchQuery.isNotEmpty &&
           !b.title.toLowerCase().contains(searchQuery.toLowerCase()) &&
           !b.storeName.toLowerCase().contains(searchQuery.toLowerCase())) {
@@ -258,6 +270,12 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
 
     final featuredBoxes =
         activeBoxes.where((b) => _promotedIds.contains(b.id)).toList();
+
+    // Gói Túi + Phí: túi là sản phẩm chính (dải ngang riêng bên trên),
+    // lưới bên dưới chỉ còn bán lẻ từng món.
+    final bagBoxes = activeBoxes.where((b) => b.isBag).toList()
+      ..sort((a, b) => a.remainingSeconds.compareTo(b.remainingSeconds));
+    final retailBoxes = activeBoxes.where((b) => !b.isBag).toList();
 
     final flashBoxes = [..._boxes.where((b) => b.isActive && b.remainingSeconds > 0)]
       ..sort((a, b) => a.remainingSeconds.compareTo(b.remainingSeconds));
@@ -507,13 +525,51 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
                 ),
               ),
 
+              // Gói Túi + Phí: dải túi bất ngờ — sản phẩm chính của sàn.
+              if (bagBoxes.isNotEmpty) ...[
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.all(12),
+                  color: AppColors.card,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '🎒 Túi bất ngờ — giảm 50%',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.greenDark),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Quán đóng gì ngon thì bạn nhận nấy, giá chỉ bằng nửa giá trị thật.',
+                        style: TextStyle(color: AppColors.mute, fontSize: 12),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 178,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: bagBoxes.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                          itemBuilder: (context, index) {
+                            return SizedBox(
+                              width: 130,
+                              child: _buildDealCard(bagBoxes[index], isMini: true),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Gợi ý gần bạn',
+                      '🍱 Mua lẻ từng món',
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.greenDark),
                     ),
                     const SizedBox(height: 8),
@@ -582,7 +638,7 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
                 child: GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: activeBoxes.length,
+                  itemCount: retailBoxes.length,
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
                     mainAxisSpacing: 10,
@@ -590,7 +646,7 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
                     childAspectRatio: 0.78,
                   ),
                   itemBuilder: (context, index) {
-                    return _buildDealCard(activeBoxes[index], isMini: false);
+                    return _buildDealCard(retailBoxes[index], isMini: false);
                   },
                 ),
               ),
@@ -783,12 +839,24 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
                     ),
                   ),
                 ),
-                if (_promotedIds.contains(box.id) || box.isGift)
+                if (_promotedIds.contains(box.id) || box.isGift || box.isBag)
                   Positioned(
                     right: 6,
                     bottom: 6,
                     child: Row(
                       children: [
+                        if (box.isBag)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.green,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: const Text('🎒 Túi',
+                                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                          ),
+                        if (box.isBag && (_promotedIds.contains(box.id) || box.isGift))
+                          const SizedBox(width: 4),
                         if (_promotedIds.contains(box.id))
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -876,7 +944,7 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
                       Positioned.fill(
                         child: Center(
                           child: Text(
-                            'Còn ${box.remainingQty}/${box.totalQty}',
+                            'Còn ${box.remainingQty}/${box.totalQty}${box.isBag ? ' túi' : ''}',
                             style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
                           ),
                         ),

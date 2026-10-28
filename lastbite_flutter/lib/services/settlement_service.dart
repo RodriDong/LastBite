@@ -51,6 +51,43 @@ List<Settlement> _sortedSettlements(List<Settlement> list) {
   return list;
 }
 
+/// Giai đoạn phí gian hàng (Gói Túi + Phí) — cùng mốc với server
+/// (pricing.ts), "tháng" tính tròn 30 ngày:
+///   GĐ1: tuổi < 60 ngày  → phí 0đ, hoa hồng 5%
+///   GĐ2: 60 ≤ tuổi < 180 → phí 99.000đ/tháng, hoa hồng 10%
+///   GĐ3: tuổi ≥ 180 ngày → phí 149.000đ/tháng, hoa hồng 10%
+/// Quán chưa có ngày tạo (dữ liệu cũ) tính như GĐ3, khớp server.
+class FeeStage {
+  FeeStage._();
+
+  static int stageOf(DateTime? createdAt, DateTime now) {
+    if (createdAt == null) return 3;
+    final ageDays = now.difference(createdAt).inDays;
+    if (ageDays < 60) return 1;
+    if (ageDays < 180) return 2;
+    return 3;
+  }
+
+  static int amountForStage(int stage) {
+    if (stage == 2) return 99000;
+    if (stage == 3) return 149000;
+    return 0;
+  }
+
+  static int commissionPercentForStage(int stage) =>
+      stage == 1 ? 5 : 10;
+
+  static String nameForStage(int stage) => 'Giai đoạn $stage';
+
+  /// Toàn bộ biểu phí — hiện ở dialog gia hạn để quán biết trước
+  /// cả lộ trình, không bị tăng giá bất ngờ.
+  static const String scheduleText =
+      'Biểu phí gian hàng:\n'
+      '• Giai đoạn 1 (2 tháng đầu): miễn phí + hoa hồng 5%.\n'
+      '• Giai đoạn 2 (tháng 3–6): 99.000đ/tháng + hoa hồng 10%.\n'
+      '• Giai đoạn 3 (từ tháng 7): 149.000đ/tháng + hoa hồng 10%.';
+}
+
 class SettlementService {
   static final _db = FirebaseFirestore.instance;
 
@@ -124,8 +161,11 @@ class SettlementService {
     });
   }
 
-  /// Gia hạn gian hàng 1 tháng — 99.000đ (giả lập, không cần admin duyệt).
-  static Future<void> renewShopFee() async {
-    await ApiService.post('/api/renewShopFee', {});
+  /// Gia hạn gian hàng 1 tháng (giả lập, không cần admin duyệt).
+  /// Số tiền theo giai đoạn lúc gia hạn (server chốt): GĐ2 = 99.000đ,
+  /// GĐ3 = 149.000đ; GĐ1 đang miễn phí thì server báo lỗi.
+  /// Trả về map của server ({feeExpiresAt, stage, amount}).
+  static Future<Map<String, dynamic>> renewShopFee() async {
+    return await ApiService.post('/api/renewShopFee', {});
   }
 }

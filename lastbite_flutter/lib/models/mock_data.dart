@@ -65,6 +65,11 @@ class SurpriseBox {
   final List<String> pickupSlots;
   /// Suất tặng miễn phí (phi lợi nhuận, BMC) — giá 0đ.
   final bool isGift;
+  // Gói Túi + Phí: true = túi bất ngờ (giá cố định 50% giá trị thật).
+  final bool isBag;
+  final int bagPrice;
+  final List<String> possibleCategories;
+  final String allergyNote;
   final DateTime createdAt;
   final DateTime expiredAt;
   bool isActive;
@@ -91,6 +96,10 @@ class SurpriseBox {
     this.pickupWindow = '20:00 – 21:30',
     this.pickupSlots = const [],
     this.isGift = false,
+    this.isBag = false,
+    this.bagPrice = 0,
+    this.possibleCategories = const [],
+    this.allergyNote = '',
     required this.createdAt,
     required this.expiredAt,
     this.isActive = true,
@@ -105,6 +114,7 @@ class SurpriseBox {
   bool get isUrgent => remainingSeconds < 7200; // Dưới 2 giờ hiển thị màu đỏ
 
   int get currentDiscountPercent {
+    if (isBag) return isGift ? 100 : 50; // Túi: cố định 50%
     final rem = remainingSeconds;
     if (rem > 10800) return 20; // Trên 3 giờ: giảm 20%
     if (rem > 3600) return 40;  // 1 – 3 giờ: giảm 40%
@@ -112,6 +122,7 @@ class SurpriseBox {
   }
 
   int get currentDynamicPrice {
+    if (isBag) return bagPrice; // Túi: giá cố định, không đổi theo giờ
     final factor = (100 - currentDiscountPercent) / 100.0;
     return ((originalPrice * factor) / 1000).round() * 1000;
   }

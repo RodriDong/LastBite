@@ -164,7 +164,7 @@ class _BoxDetailScreenState extends State<BoxDetailScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text('Hết giá này sau', style: TextStyle(color: Colors.white, fontSize: 10)),
+                    Text(box.isBag ? 'Nhận trước' : 'Hết giá này sau', style: const TextStyle(color: Colors.white, fontSize: 10)),
                     const SizedBox(height: 2),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -192,10 +192,48 @@ class _BoxDetailScreenState extends State<BoxDetailScreen> {
                 const SizedBox(height: 4),
                 Text(
                   _storeRatingCount > 0
-                      ? '★ ${_storeRating.toStringAsFixed(1).replaceAll('.', ',')} ($_storeRatingCount đánh giá) · Còn ${box.remainingQty} phần'
-                      : 'Chưa có đánh giá · Còn ${box.remainingQty} phần',
+                      ? '★ ${_storeRating.toStringAsFixed(1).replaceAll('.', ',')} ($_storeRatingCount đánh giá) · Còn ${box.remainingQty} ${box.isBag ? 'túi' : 'phần'}'
+                      : 'Chưa có đánh giá · Còn ${box.remainingQty} ${box.isBag ? 'túi' : 'phần'}',
                   style: const TextStyle(color: AppColors.mute, fontSize: 12),
                 ),
+                // Gói Túi + Phí: túi hiện gợi ý trong túi + ghi chú dị ứng.
+                if (box.isBag) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.greenLight,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.green),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '🎒 Túi bất ngờ — quán đóng gì ngon thì bạn nhận nấy.',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.greenDark),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Có thể có: ${box.possibleCategories.join(', ')}',
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                        if (box.allergyNote.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '⚠️ Dị ứng: ${box.allergyNote}',
+                            style: const TextStyle(fontSize: 12.5, color: AppColors.hot),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Giá túi cố định 50% giá trị thật, không đổi theo giờ.',
+                          style: TextStyle(fontSize: 12, color: AppColors.mute),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (_certApproved) ...[
                   const SizedBox(height: 6),
                   Row(
@@ -340,8 +378,12 @@ class _BoxDetailScreenState extends State<BoxDetailScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: Container(
-        height: 54,
+      // Gói Túi + Phí: SafeArea để thanh điều hướng hệ thống của
+      // Android không che mất nút đặt giữ chỗ.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          height: 54,
         decoration: const BoxDecoration(
           color: AppColors.card,
           border: Border(top: BorderSide(color: AppColors.line)),
@@ -386,13 +428,14 @@ class _BoxDetailScreenState extends State<BoxDetailScreen> {
                   color: box.remainingQty > 0 ? AppColors.green : AppColors.mute,
                   alignment: Alignment.center,
                   child: Text(
-                    box.remainingQty > 0 ? 'Đặt giữ chỗ ngay' : 'Đã hết phần',
+                    box.remainingQty > 0 ? 'Đặt giữ chỗ ngay' : (box.isBag ? 'Đã hết túi' : 'Đã hết phần'),
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
                   ),
                 ),
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -717,7 +760,7 @@ class _CheckoutConfirmScreenState extends State<CheckoutConfirmScreen> {
                   children: [
                     const Text('Số lượng', style: TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
-                    Text('Còn ${box.remainingQty} phần',
+                    Text('Còn ${box.remainingQty} ${box.isBag ? 'túi' : 'phần'}',
                         style: const TextStyle(fontSize: 12, color: AppColors.mute)),
                   ],
                 ),

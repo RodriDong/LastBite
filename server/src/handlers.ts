@@ -25,7 +25,14 @@ import {
   generatePickupCodeCandidate,
   dailyStatsKey,
 } from "./orders";
-import { unitPriceFor, discountPercentFor, commissionFor } from "./pricing";
+import {
+  unitPriceFor,
+  discountPercentFor,
+  commissionFor,
+  feeStageFor,
+  feeAmountForStage,
+  commissionRateFor,
+} from "./pricing";
 import { notifyUser } from "./notify";
 
 // ---------------------------------------------------------------------------
@@ -167,18 +174,19 @@ export async function becomeSeller(ctx: AuthContext, data: unknown) {
       ratingCount: 0,
       isApproved: true,
       openHours: null,
-      // Phí duy trì gian hàng (BMC): tháng đầu tính vào lúc đăng ký
-      // (giả lập, không cần admin duyệt), hạn 30 ngày, gia hạn ở menu quán.
-      feeExpiresAt: Timestamp.fromMillis(Date.now() + 30 * 24 * 3600 * 1000),
+      // Phí duy trì gian hàng 3 giai đoạn (Gói Túi + Phí): quán mới
+      // được MIỄN PHÍ 2 tháng đầu (Giai đoạn 1), hạn 60 ngày, gia hạn
+      // ở menu quán. Phí giả lập, không cần admin duyệt.
+      feeExpiresAt: Timestamp.fromMillis(Date.now() + 60 * 24 * 3600 * 1000),
       feeStatus: "active",
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
     await db.collection(`stores/${ctx.uid}/feePayments`).add({
-      amount: 99000,
-      months: 1,
+      amount: 0,
+      months: 2,
       method: "fake",
-      note: "Tháng đầu khi đăng ký gian hàng",
+      note: "Giai đoạn 1 - Miễn phí 2 tháng đầu",
       createdAt: FieldValue.serverTimestamp(),
     });
     created = true;
@@ -277,6 +285,12 @@ export async function createDeal(ctx: AuthContext, data: unknown) {
     minPrice: input.minPrice,
     maxDiscountPercent: input.maxDiscountPercent,
     isGift: input.isGift,
+    // Gói Túi + Phí: loại deal + giá túi + gợi ý trong túi.
+    dealType: input.dealType,
+    originalValue: input.originalValue,
+    bagPrice: input.bagPrice,
+    possibleCategories: input.possibleCategories,
+    allergyNote: input.allergyNote,
     totalQty: input.totalQty,
     remainingQty: input.totalQty,
     saleEndAt: Timestamp.fromMillis(input.saleEndAtMs),
@@ -367,20 +381,33 @@ export async function createOrder(ctx: AuthContext, data: unknown) {
       );
     }
 
-    const maxDiscount = (deal.maxDiscountPercent as number) ?? 60;
-    const unitPrice = unitPriceFor(
-      {
-        originalPrice: deal.originalPrice as number,
-        minPrice: deal.minPrice as number,
-        maxDiscountPercent: maxDiscount,
-      },
-      saleEndAtMs - now,
-    );
+    // Gói Túi + Phí: túi bán giá cố định 50% (bagPrice), KHÔNG chạy
+    // thang giảm theo giờ. Bán lẻ giữ nguyên công thức cũ.
+    const isBag = (deal.dealType as string) === "bag";
+    let unitPrice: number | null;
+    let discountPercent: number;
+    if (isBag) {
+      const bagPrice = deal.bagPrice as number | undefined;
+      if (typeof bagPrice !== "number") {
+        throw new ApiError("failed-precondition", "Túi này thiếu giá bán.");
+      }
+      unitPrice = bagPrice;
+      discountPercent = (deal.isGift as boolean) === true ? 100 : 50;
+    } else {
+      const maxDiscount = (deal.maxDiscountPercent as number) ?? 60;
+      unitPrice = unitPriceFor(
+        {
+          originalPrice: deal.originalPrice as number,
+          minPrice: deal.minPrice as number,
+          maxDiscountPercent: maxDiscount,
+        },
+        saleEndAtMs - now,
+      );
+      discountPercent = discountPercentFor(saleEndAtMs - now, maxDiscount) ?? 0;
+    }
     if (unitPrice === null) {
       throw new ApiError("failed-precondition", "Suất này đã kết thúc phiên bán.");
     }
-    const discountPercent =
-      discountPercentFor(saleEndAtMs - now, maxDiscount) ?? 0;
     const totalLockedPrice = unitPrice * input.quantity;
     const originalTotal = (deal.originalPrice as number) * input.quantity;
     // Voucher (bản Hoàn thiện): trừ thêm vào số tiền người mua trả.
@@ -644,7 +671,15 @@ export async function confirmPickup(ctx: AuthContext, data: unknown) {
     }
     const total = order.totalLockedPrice as number;
     const qty = order.quantity as number;
-    const commission = commissionFor(total);
+    // Gói Túi + Phí: hoa hồng theo tuổi quán lúc xác nhận đơn —
+    // Giai đoạn 1 (2 tháng đầu) chỉ 5%, từ Giai đoạn 2 trở đi 10%.
+    const storeCreatedMs =
+      (storeSnap.data()?.createdAt as Timestamp | undefined)?.toMillis() ??
+      null;
+    const commission = commissionFor(
+      total,
+      commissionRateFor(storeCreatedMs, Date.now()),
+    );
 
     txn.update(orderRef, {
       status: "COMPLETED",
@@ -1063,6 +1098,45 @@ export async function updateDeal(ctx: AuthContext, data: unknown) {
     }
     patch.category = cat;
   }
+  // Gói Túi + Phí: túi được sửa gợi ý trong túi + ghi chú dị ứng.
+  // Deal lẻ gửi 2 trường này lên sẽ bị bỏ qua (không lỗi).
+  if (deal.dealType === "bag") {
+    if (d.possibleCategories !== undefined) {
+      if (
+        !Array.isArray(d.possibleCategories) ||
+        d.possibleCategories.length === 0 ||
+        !d.possibleCategories.every((c) => typeof c === "string")
+      ) {
+        throw new ApiError(
+          "invalid-argument",
+          "Túi cần chọn ít nhất 1 nhóm món có thể có.",
+        );
+      }
+      const seen = new Set<string>();
+      for (const c of d.possibleCategories as string[]) {
+        const t = c.trim();
+        if (!DEAL_CATEGORIES.includes(t)) {
+          throw new ApiError(
+            "invalid-argument",
+            `Nhóm món trong túi không hợp lệ: ${t}.`,
+          );
+        }
+        seen.add(t);
+      }
+      patch.possibleCategories = [...seen];
+      patch.category = [...seen][0];
+    }
+    if (d.allergyNote !== undefined) {
+      const note = typeof d.allergyNote === "string" ? d.allergyNote.trim() : "";
+      if (note.length > 200) {
+        throw new ApiError(
+          "invalid-argument",
+          "Ghi chú dị ứng tối đa 200 ký tự.",
+        );
+      }
+      patch.allergyNote = note;
+    }
+  }
   const rawImg = d.imageBase64;
   if (typeof rawImg === "string" && rawImg.length > 0) {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
@@ -1288,12 +1362,14 @@ export async function confirmFakePayment(ctx: AuthContext, data: unknown) {
 // Gói 2+3 (BMC) — doanh thu sàn + vận hành
 // ---------------------------------------------------------------------------
 
-export const SHOP_FEE_AMOUNT = 99000;
 export const SHOP_FEE_DAYS = 30;
 export const PROMO_FEE_PER_DAY = 20000;
 
 /// Gia hạn gian hàng (seller): +30 ngày kể từ hạn hiện tại (hoặc từ nay
 /// nếu đã hết hạn). Phí giả lập, không cần admin duyệt.
+/// Gói Túi + Phí: số tiền theo giai đoạn lúc gia hạn — Giai đoạn 1
+/// đang miễn phí thì không cần gia hạn (báo lỗi để app hiện hạn miễn
+/// phí); Giai đoạn 2 = 99.000đ, Giai đoạn 3 = 149.000đ.
 export async function renewShopFee(ctx: AuthContext, data: unknown) {
   const db = getDb();
   const storeRef = db.doc(`stores/${ctx.uid}`);
@@ -1301,6 +1377,16 @@ export async function renewShopFee(ctx: AuthContext, data: unknown) {
   if (!snap.exists) {
     throw new ApiError("not-found", "Chưa có gian hàng.");
   }
+  const createdMs =
+    (snap.data()?.createdAt as Timestamp | undefined)?.toMillis() ?? null;
+  const stage = feeStageFor(createdMs, Date.now());
+  if (stage === 1) {
+    throw new ApiError(
+      "failed-precondition",
+      "Gian hàng đang trong 2 tháng miễn phí (Giai đoạn 1), chưa cần gia hạn.",
+    );
+  }
+  const amount = feeAmountForStage(stage);
   const cur =
     (snap.data()?.feeExpiresAt as Timestamp | undefined)?.toMillis() ?? 0;
   const base = Math.max(Date.now(), cur);
@@ -1311,13 +1397,18 @@ export async function renewShopFee(ctx: AuthContext, data: unknown) {
     updatedAt: FieldValue.serverTimestamp(),
   });
   await db.collection(`stores/${ctx.uid}/feePayments`).add({
-    amount: SHOP_FEE_AMOUNT,
+    amount,
     months: 1,
     method: "fake",
-    note: "Gia hạn gian hàng",
+    note: `Gia hạn gian hàng (Giai đoạn ${stage})`,
     createdAt: FieldValue.serverTimestamp(),
   });
-  return { ok: true, feeExpiresAt: new Date(next.toMillis()).toISOString() };
+  return {
+    ok: true,
+    feeExpiresAt: new Date(next.toMillis()).toISOString(),
+    stage,
+    amount,
+  };
 }
 
 /// Đăng ký quảng bá suất (seller, BMC "phí ưu tiên hiển thị"): 1 suất chỉ

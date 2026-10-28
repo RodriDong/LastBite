@@ -30,6 +30,12 @@ class Deal {
   final String status; // active | paused | expired | soldout
   final bool isGift;
   final DateTime? createdAt;
+  // Gói Túi + Phí: 'bag' = túi bất ngờ (giá cố định 50%), 'retail' = lẻ.
+  final String dealType;
+  final int originalValue;
+  final int bagPrice;
+  final List<String> possibleCategories;
+  final String allergyNote;
 
   const Deal({
     required this.id,
@@ -54,6 +60,11 @@ class Deal {
     required this.status,
     required this.createdAt,
     this.isGift = false,
+    this.dealType = 'retail',
+    this.originalValue = 0,
+    this.bagPrice = 0,
+    this.possibleCategories = const [],
+    this.allergyNote = '',
   });
 
   static int _asInt(dynamic v, int fallback) {
@@ -103,6 +114,13 @@ class Deal {
           .toList(),
       status: (d['status'] ?? '').toString(),
       isGift: d['isGift'] == true,
+      dealType: (d['dealType'] ?? 'retail').toString(),
+      originalValue: _asInt(d['originalValue'], _asInt(d['originalPrice'], 0)),
+      bagPrice: _asInt(d['bagPrice'], 0),
+      possibleCategories: ((d['possibleCategories'] as List?) ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      allergyNote: (d['allergyNote'] ?? '').toString(),
       createdAt:
           d['createdAt'] is Timestamp ? (d['createdAt'] as Timestamp).toDate() : null,
     );
@@ -117,18 +135,23 @@ class Deal {
 
   bool get isUrgent => remainingSeconds < 7200;
 
-  /// % giảm giá theo bảng giờ — cùng công thức với server (pricing.ts),
-  /// chỉ dùng để PREVIEW; createOrder luôn tính lại ở server.
+  bool get isBag => dealType == 'bag';
+
+  /// % giảm giá — túi cố định 50%; lẻ theo bảng giờ (cùng công thức
+  /// với server pricing.ts), chỉ dùng để PREVIEW; createOrder luôn
+  /// tính lại ở server.
   int get currentDiscountPercent {
+    if (isBag) return isGift ? 100 : 50;
     final rem = remainingSeconds;
     if (rem > 10800) return 20;
     if (rem > 3600) return 40;
     return maxDiscountPercent;
   }
 
-  /// Giá bán hiện tại: làm tròn nghìn đồng, KHÔNG thấp hơn minPrice
-  /// (đúng hợp đồng backend-contract.md §1).
+  /// Giá bán hiện tại: túi = bagPrice cố định; lẻ = làm tròn nghìn
+  /// đồng, KHÔNG thấp hơn minPrice (đúng hợp đồng §1).
   int get currentDynamicPrice {
+    if (isBag) return bagPrice;
     final factor = (100 - currentDiscountPercent) / 100.0;
     final discounted = ((originalPrice * factor) / 1000).round() * 1000;
     return discounted < minPrice ? minPrice : discounted;
@@ -174,6 +197,10 @@ class Deal {
       pickupWindow: pickupWindow,
       pickupSlots: pickupSlots,
       isGift: isGift,
+      isBag: isBag,
+      bagPrice: bagPrice,
+      possibleCategories: possibleCategories,
+      allergyNote: allergyNote,
       createdAt: createdAt ?? DateTime.now(),
       expiredAt: saleEndAt,
       isActive: isActive,
